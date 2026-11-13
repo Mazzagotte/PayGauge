@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Trash2 } from "lucide-react";
+import { PageHeader } from "../../../components/navigation/PageHeader";
+import { CheckCircle2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoanCategoryIcon, categoryTone } from "../../../components/loans/LoanCategoryIcon";
-import { type Loan, type Payment, deletePayment, formatDate, formatMoney, getLoans, getPayments } from "../../../lib/api";
+import { type Loan, type Payment, deletePayment, formatDate, formatMoney, getLoans, getPayments, paymentUndoUnavailableReason } from "../../../lib/api";
 
 export default function Page() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<Payment | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loanById = useMemo(() => new Map(loans.map((loan) => [loan.id, loan])), [loans]);
@@ -49,11 +51,7 @@ export default function Page() {
 
   return (
     <>
-      <header className="pg-header">
-        <Link className="pg-link" href="/loans"><ArrowLeft aria-hidden="true" /> Back</Link>
-        <h1 className="pg-title" style={{ fontSize: 16 }}>Payment History</h1>
-        <span />
-      </header>
+      <PageHeader title="Payment History" backHref="/loans" />
 
       {error ? <p className="pg-error">{error}</p> : null}
       {loading ? <article className="pg-empty-card"><strong>Loading payments</strong><span>Building the payoff timeline.</span></article> : null}
@@ -61,6 +59,7 @@ export default function Page() {
       <div className="pg-stack">
         {payments.map((payment) => {
           const loan = loanById.get(payment.loan_id);
+          const undoReason = paymentUndoUnavailableReason(payment, loan, payments);
           return (
             <article className="pg-list-card" key={payment.id}>
               <div className="pg-row">
@@ -75,11 +74,13 @@ export default function Page() {
                 </div>
                 <div className="pg-amount">
                   <strong>{formatMoney(payment.amount, 2)}</strong>
-                  <button className="pg-link" type="button" disabled={deleting === payment.id} onClick={() => void handleDelete(payment.id)} style={{ background: "transparent", border: 0, padding: 0, marginTop: 4 }}>
+                  <button className="pg-link" type="button" disabled={Boolean(undoReason) || deleting !== null} aria-describedby={undoReason ? `undo-reason-${payment.id}` : undefined} onClick={() => setConfirmingDelete(payment)} style={{ background: "transparent", border: 0, padding: 0, marginTop: 4 }}>
                     <Trash2 aria-hidden="true" /> Undo
                   </button>
                 </div>
+                {undoReason ? <p className="pg-detail" id={`undo-reason-${payment.id}`}>{undoReason}</p> : null}
               </div>
+              {confirmingDelete ? <div className="pg-modal-backdrop" role="dialog" aria-modal="true" aria-label="Undo payment"><section className="pg-modal"><h2>Undo payment</h2><p className="pg-muted">Remove the {formatMoney(confirmingDelete.amount, 2)} payment from {formatDate(confirmingDelete.payment_date)}? Tally will restore the saved account values from before this payment.</p><div className="pg-action-row"><button className="pg-button secondary" type="button" onClick={() => setConfirmingDelete(null)}>Cancel</button><button className="pg-button" type="button" disabled={deleting !== null} onClick={() => { const id = confirmingDelete.id; setConfirmingDelete(null); void handleDelete(id); }}>Undo Payment</button></div></section></div> : null}
             </article>
           );
         })}

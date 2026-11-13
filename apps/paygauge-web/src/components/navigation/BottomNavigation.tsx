@@ -2,30 +2,39 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Gauge, Home, Settings } from "lucide-react";
+import { CalendarDays, Home, Plus, Settings, WalletCards } from "lucide-react";
 
-const navItems = [
+const left = [
   { href: "/dashboard", icon: Home, label: "Home" },
-  { href: "/loans", icon: Gauge, label: "Loans" },
+  { href: "/loans", icon: WalletCards, label: "Payments", exact: true },
+];
+const right = [
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
-  { href: "/settings", icon: Settings, label: "More" },
+  { href: "/settings", icon: Settings, label: "More", also: ["/income"] },
 ];
 
 export function BottomNavigation() {
-  const pathname = usePathname();
+  const pathname = usePathname().replace(/\/$/, "") || "/";
+
+  const tab = (item: { href: string; icon: typeof Home; label: string; exact?: boolean; also?: string[] }) => {
+    const matches = (href: string) => pathname === href || (!item.exact && pathname.startsWith(`${href}/`));
+    const active = matches(item.href) || (item.href === "/loans" && /^\/(loans\/(detail|edit|payments)|payments)/.test(pathname)) || (item.also ?? []).some(matches);
+    const Icon = item.icon;
+    return (
+      <Link aria-current={active ? "page" : undefined} className={`pg-nav-link ${active ? "active" : ""}`} href={item.href} key={item.href}>
+        <span className="pg-nav-icon"><Icon aria-hidden="true" /></span>
+        <span className="pg-nav-label">{item.label}</span>
+      </Link>
+    );
+  };
 
   return (
     <nav className="pg-bottom-nav" aria-label="Primary navigation">
-      {navItems.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-        const Icon = item.icon;
-        return (
-          <Link className={`pg-nav-link ${active ? "active" : ""}`} href={item.href} key={item.href}>
-            <Icon aria-hidden="true" />
-            <span>{item.label}</span>
-          </Link>
-        );
-      })}
+      {left.map(tab)}
+      <div className="pg-nav-plus">
+        <Link href="/loans/new" aria-label="Add payment" aria-current={pathname === "/loans/new" ? "page" : undefined}><Plus aria-hidden="true" /></Link>
+      </div>
+      {right.map(tab)}
     </nav>
   );
 }

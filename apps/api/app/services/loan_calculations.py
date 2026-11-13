@@ -53,7 +53,18 @@ def calculate_payments_remaining(
     payments_made: int,
     current_balance: Decimal,
     payment_amount: Decimal,
+    interest_rate: Decimal | None = None,
 ) -> int:
+    if interest_rate and interest_rate > Decimal("0"):
+        monthly_rate = interest_rate / Decimal("100") / Decimal("12")
+        balance = max(current_balance, Decimal("0"))
+        if payment_amount <= balance * monthly_rate:
+            return 1200
+        payments = 0
+        while balance > Decimal("0") and payments < 1200:
+            balance = balance + (balance * monthly_rate) - payment_amount
+            payments += 1
+        return payments
     if total_number_of_payments is not None:
         return max(total_number_of_payments - payments_made, 0)
     if payment_amount <= Decimal("0"):
@@ -69,8 +80,6 @@ def calculate_progress_percentage(
     original_amount: Decimal,
     current_balance: Decimal,
 ) -> float:
-    if total_number_of_payments and total_number_of_payments > 0:
-        return round(min((payments_made / total_number_of_payments) * 100, 100), 2)
     if original_amount <= Decimal("0"):
         return 0.0
     paid = max(original_amount - current_balance, Decimal("0"))

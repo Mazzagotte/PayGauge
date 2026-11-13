@@ -1,32 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { BellRing, CheckCircle2, Sparkles, UserCircle } from "lucide-react";
+import { PageHeader } from "../../../components/navigation/PageHeader";
+import { ProgressRing } from "../../../components/ProgressRing";
+import { BellRing, CheckCircle2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { LoanCategoryIcon, categoryTone } from "../../../components/loans/LoanCategoryIcon";
 import {
   type DashboardSummary,
   type NotificationItem,
+  currentLocalDate,
   formatDate,
   formatMoney,
+  formatNumber,
   getDashboardSummary,
   getNotificationQueue,
   getSnoozedNotificationIds,
-  milestoneLabel,
   recordLoanPayment,
   relativeDueText,
-  seedDemoData,
   snoozeNotification,
 } from "../../../lib/api";
+import { groupPaymentsByDueDate } from "../../../lib/dashboard";
+
+function getGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return "Good morning";
+  }
+
+  if (hour < 18) {
+    return "Good afternoon";
+  }
+
+  return "Good evening";
+}
 
 export default function Page() {
+  const [greeting, setGreeting] = useState("Good morning");
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [notificationItems, setNotificationItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [seeding, setSeeding] = useState(false);
   const [recordingNotification, setRecordingNotification] = useState(false);
+  const [recordingNextPayment, setRecordingNextPayment] = useState(false);
   const [confirmingNotification, setConfirmingNotification] = useState<NotificationItem | null>(null);
+  const [confirmingNextPayment, setConfirmingNextPayment] = useState<DashboardSummary["next_payment"]>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadDashboard() {
@@ -45,19 +64,13 @@ export default function Page() {
     void loadDashboard();
   }, []);
 
-  async function handleSeedDemo() {
-    setSeeding(true);
-    setError(null);
-    try {
-      await seedDemoData(true);
-      await loadDashboard();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load demo data");
-    } finally {
-      setSeeding(false);
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    const updateGreeting = () => setGreeting(getGreeting());
+    const intervalId = window.setInterval(updateGreeting, 60_000);
+
+    updateGreeting();
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   async function confirmAutopayPayment(item: NotificationItem) {
     setRecordingNotification(true);
@@ -65,8 +78,8 @@ export default function Page() {
     try {
       await recordLoanPayment(item.loan_id, {
         amount: item.amount,
-        payment_date: new Date().toISOString().slice(0, 10),
-        notes: "Confirmed from PayGauge notification queue",
+        payment_date: currentLocalDate(),
+        notes: "Confirmed from Tally notification queue",
         source: "autopay-confirmed",
       });
       setConfirmingNotification(null);
@@ -78,6 +91,26 @@ export default function Page() {
     }
   }
 
+  async function confirmNextPayment() {
+    if (!confirmingNextPayment) return;
+    setRecordingNextPayment(true);
+    setError(null);
+    try {
+      await recordLoanPayment(confirmingNextPayment.id, {
+        amount: confirmingNextPayment.payment_amount,
+        payment_date: currentLocalDate(),
+        notes: "Recorded from Tally dashboard",
+        source: confirmingNextPayment.autopay ? "autopay-confirmed" : "manual",
+      });
+      setConfirmingNextPayment(null);
+      await loadDashboard();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to record payment");
+    } finally {
+      setRecordingNextPayment(false);
+    }
+  }
+
   function snooze(item: NotificationItem, minutes = 60) {
     snoozeNotification(item.id, minutes);
     setNotificationItems((items) => [...items]);
@@ -85,76 +118,62 @@ export default function Page() {
 
   const snoozedNotificationIds = getSnoozedNotificationIds();
   const needsConfirmation = notificationItems.filter((item) => item.action_required && !snoozedNotificationIds.has(item.id));
-  const closestLoan = summary?.next_payment;
-  const upcomingAfterNext = summary?.upcoming_payments.filter((loan) => loan.id !== closestLoan?.id) ?? [];
+  const activeLoans = summary?.active_loans ?? [];
+  const debts = activeLoans.filter((loan) => loan.payment_type === "payoff");
+  // Accounts waiting on an autopay confirmation are handled above; keep them out of "Next due".
+  const confirmingIds = new Set(needsConfirmation.map((item) => item.loan_id));
+  const [nextDueGroup, ...upcomingGroups] = groupPaymentsByDueDate(activeLoans.filter((loan) => !confirmingIds.has(loan.id)));
+  const upcomingRows = upcomingGroups.flatMap((group) => group.payments.map((loan) => ({ loan, date: group.date }))).slice(0, 5);
+  const monthlyDue = Number(summary?.current_month_due ?? 0);
+  const monthlyPaid = Number(summary?.current_month_paid ?? 0);
+  const monthlyRemaining = Math.max(monthlyDue - monthlyPaid, 0);
+  const monthlyProgress = monthlyDue > 0 ? Math.min(Math.max(monthlyPaid / monthlyDue * 100, 0), 100) : 0;
+  const debtLeft = Number(summary?.loan_balance ?? 0);
+  const debtOriginal = Number(summary?.total_original_debt ?? 0);
+  const debtProgress = debtOriginal > 0 ? Math.min(Math.max((debtOriginal - debtLeft) / debtOriginal * 100, 0), 100) : 0;
+  const hasDebts = debts.length > 0;
+  const isEmpty = !loading && activeLoans.length === 0;
+  const ringValue = hasDebts ? debtProgress : monthlyProgress;
+  const monthName = new Intl.DateTimeFormat(undefined, { month: "long" }).format(new Date());
 
   return (
     <>
-      <header className="pg-header">
-        <div className="pg-brand">
-          <img className="pg-brand-mark" src="/brand/PayGauge_Logo_Mark.png" alt="PayGauge" />
-          <div className="pg-brand-copy">
-            <strong>PayGauge</strong>
-            <span>See what's left.</span>
-          </div>
-        </div>
-        <Link className="pg-icon-button" href="/settings" aria-label="Settings">
-          <UserCircle aria-hidden="true" />
-        </Link>
-      </header>
-
-      <h1 className="pg-greeting">Good morning, James!</h1>
-      <p className="pg-muted">You're making progress.</p>
-
-      {closestLoan ? (
-        <article className="pg-insight-card" style={{ marginTop: 14 }}>
-          <Sparkles aria-hidden="true" />
-          <div>
-            <strong>{closestLoan.payments_remaining} payments left on {closestLoan.name}</strong>
-            <span>{relativeDueText(closestLoan.next_due_date)}. {milestoneLabel(closestLoan.payments_remaining, closestLoan.progress_percentage) ?? "Keep the payoff count moving."}</span>
-          </div>
-        </article>
-      ) : null}
+      <PageHeader title="Home" subtitle={<>{greeting}, <b className="pg-grad">James</b></>} />
 
       {error ? <p className="pg-error">{error}</p> : null}
 
-      <section className="pg-grid-2" style={{ marginTop: 16 }}>
-        <div className="pg-stat"><span>Total Remaining</span><strong>{loading ? "..." : formatMoney(summary?.total_remaining_balance ?? 0)}</strong></div>
-        <div className="pg-stat"><span>Monthly Payments</span><strong>{loading ? "..." : formatMoney(summary?.total_monthly_payments ?? 0)}</strong></div>
-        <div className="pg-stat"><span>Total Payments Left</span><strong>{loading ? "..." : summary?.total_payments_remaining ?? 0}</strong></div>
-        <div className="pg-stat"><span>Loans Completed</span><strong>{loading ? "..." : summary?.loans_completed ?? 0}</strong></div>
-      </section>
-
-      <section className="pg-section-head">
-        <h2>Next Payment</h2>
-        <Link className="pg-link" href="/calendar">See All</Link>
-      </section>
-
-      {summary?.next_payment ? (
-        <article className="pg-list-card">
-          <div className="pg-row">
-            <div className="pg-left">
-              <span className={`pg-token ${categoryTone(summary.next_payment.category)}`}><LoanCategoryIcon category={summary.next_payment.category} /></span>
-              <div>
-                <p className="pg-name">{summary.next_payment.name}</p>
-                <p className="pg-detail">{formatMoney(summary.next_payment.payment_amount, 2)}</p>
-                <p className="pg-detail">{formatDate(summary.next_payment.next_due_date)}</p>
-              </div>
-            </div>
-            <span className="pg-pill">Next</span>
+      <section className="pg-hero" aria-label="What's left">
+        <div className="pg-hero-main">
+          <ProgressRing value={loading ? 0 : ringValue} size={124} stroke={12}
+            label={hasDebts ? `${Math.round(debtProgress)}% of debt paid off` : `${Math.round(monthlyProgress)}% of this month paid`}>
+            <strong>{loading ? "–" : `${Math.round(ringValue)}%`}</strong>
+            <span>{hasDebts ? "paid off" : "this month"}</span>
+          </ProgressRing>
+          <div className="pg-hero-copy">
+            <span className="pg-hero-label">{hasDebts ? "Left to pay" : isEmpty ? "Nothing tracked yet" : `Left in ${monthName}`}</span>
+            <strong className="pg-hero-value">{loading ? "..." : formatMoney(hasDebts ? debtLeft : monthlyRemaining, hasDebts ? 0 : 2)}</strong>
+            <span className="pg-hero-sub">
+              {loading ? "Checking your payments" : hasDebts
+                ? `of ${formatMoney(debtOriginal)} · ${formatNumber(summary?.total_payments_remaining ?? 0)} payments across ${formatNumber(debts.length)} ${debts.length === 1 ? "debt" : "debts"}`
+                : isEmpty ? "Add a loan or bill to see what's left." : `${formatMoney(monthlyPaid, 2)} paid of ${formatMoney(monthlyDue, 2)}`}
+            </span>
           </div>
-        </article>
-      ) : (
-        <article className="pg-empty-card">
-          <strong>No payments due yet</strong>
-          <span>Add a loan to see the next due payment.</span>
-          <button className="pg-button" disabled={seeding} onClick={() => void handleSeedDemo()}>{seeding ? "Loading..." : "Load Demo Data"}</button>
-        </article>
-      )}
+        </div>
+        {isEmpty ? (
+          <Link className="pg-button" href="/loans/new">Add your first payment</Link>
+        ) : hasDebts ? (
+          <div className="pg-hero-month">
+            <div className="pg-row"><span>{monthName}</span><span><b>{formatMoney(monthlyPaid, 2)}</b> paid of {formatMoney(monthlyDue, 2)}</span></div>
+            <div className="pg-monthly-progress" role="progressbar" aria-label="This month's payments recorded" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(monthlyProgress)}>
+              <span style={{ width: `${loading ? 0 : monthlyProgress}%` }} />
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       {needsConfirmation.length ? (
         <>
-          <section className="pg-section-head"><h2>Needs Confirmation</h2></section>
+          <section className="pg-section-head"><h2>Needs confirmation</h2></section>
           <div className="pg-stack">
             {needsConfirmation.map((item) => (
               <article className="pg-list-card" key={item.id}>
@@ -167,80 +186,93 @@ export default function Page() {
                     </div>
                   </div>
                 </div>
-                <div className="pg-action-row" style={{ marginTop: 10 }}>
+                <div className="pg-action-row pg-gap-top">
                   <button className="pg-button" type="button" onClick={() => setConfirmingNotification(item)}><CheckCircle2 aria-hidden="true" /> Paid</button>
-                  <button className="pg-button dark" type="button" onClick={() => snooze(item)}><BellRing aria-hidden="true" /> Snooze</button>
+                  <button className="pg-button secondary" type="button" onClick={() => snooze(item)}><BellRing aria-hidden="true" /> Snooze</button>
                 </div>
-                <button className="pg-link" type="button" onClick={() => snooze(item, 1440)} style={{ background: "transparent", border: 0, padding: "9px 0 0" }}>
-                  Not processed today
-                </button>
+                <button className="pg-link pg-text-button" type="button" onClick={() => snooze(item, 1440)}>Not processed today</button>
               </article>
             ))}
           </div>
         </>
       ) : null}
 
-      {upcomingAfterNext.length ? (
+      {loading ? (
+        <article className="pg-empty-card pg-dashboard-loading"><strong>Loading upcoming payments</strong><span>Checking your payment schedule...</span></article>
+      ) : nextDueGroup ? (
         <>
-          <section className="pg-section-head"><h2>Upcoming</h2><Link className="pg-link" href="/calendar">Calendar</Link></section>
-          <div className="pg-stack">
-            {upcomingAfterNext.slice(0, 3).map((loan) => (
-              <Link className="pg-list-card" href={`/loans/detail?id=${loan.id}`} key={loan.id}>
+          <section className="pg-section-head">
+            <h2>Next due · {relativeDueText(nextDueGroup.date).replace(/^Due /, "")}</h2>
+            <Link className="pg-link" href="/calendar">Calendar</Link>
+          </section>
+          <article className="pg-list-card pg-next-due">
+            {nextDueGroup.payments.map((loan) => (
+              <div className="pg-due-payment" key={loan.id}>
                 <div className="pg-row">
-                  <div className="pg-left">
+                  <Link className="pg-left" href={`/loans/detail?id=${loan.id}`}>
                     <span className={`pg-token ${categoryTone(loan.category)}`}><LoanCategoryIcon category={loan.category} /></span>
-                    <div><p className="pg-name">{loan.name}</p><p className="pg-detail">{formatDate(loan.next_due_date)}</p></div>
-                  </div>
-                  <strong>{formatMoney(loan.payment_amount, 2)}</strong>
+                    <div>
+                      <p className="pg-name">{loan.name}</p>
+                      <p className="pg-detail">{formatDate(nextDueGroup.date)} · {loan.autopay ? "Autopay" : "Manual"}</p>
+                    </div>
+                  </Link>
+                  <strong className="pg-due-amount">{formatMoney(loan.payment_amount, 2)}</strong>
                 </div>
-              </Link>
+                <button className="pg-button" type="button" aria-label={`${loan.autopay ? "Confirm paid" : "Mark as paid"}: ${loan.name}`} onClick={() => setConfirmingNextPayment(loan)}>
+                  <CheckCircle2 aria-hidden="true" /> {loan.autopay ? "Confirm paid" : "Mark as paid"}
+                </button>
+              </div>
             ))}
-          </div>
+          </article>
         </>
       ) : null}
 
-      <section className="pg-section-head"><h2>Active Loans</h2><Link className="pg-link" href="/loans">Manage</Link></section>
-
-      <div className="pg-stack">
-        {summary?.active_loans.map((loan) => (
-          <Link className="pg-loan-card" href={`/loans/detail?id=${loan.id}`} key={loan.id}>
-            <div className="pg-row">
-              <div className="pg-left">
+      {upcomingRows.length ? (
+        <>
+          <section className="pg-section-head"><h2>Coming up</h2><Link className="pg-link" href="/loans">All payments</Link></section>
+          <article className="pg-list-card pg-upcoming-list">
+            {upcomingRows.map(({ loan, date }) => (
+              <Link className="pg-upcoming-row" href={`/loans/detail?id=${loan.id}`} key={`${loan.id}-${date}`}>
                 <span className={`pg-token ${categoryTone(loan.category)}`}><LoanCategoryIcon category={loan.category} /></span>
-                <div><p className="pg-name">{loan.name}</p><p className="pg-detail">{formatMoney(loan.payment_amount, 2)}/month</p></div>
-              </div>
-              <div className="pg-amount"><strong>{formatMoney(loan.current_balance)}</strong><span>remaining</span></div>
-            </div>
-            <div className="pg-progress"><span style={{ width: `${Math.max(3, loan.progress_percentage)}%` }} /></div>
-            <div className="pg-progress-meta">
-              <span>{milestoneLabel(loan.payments_remaining, loan.progress_percentage) ?? `${loan.payments_remaining} payments left`}</span>
-              <span>{relativeDueText(loan.next_due_date)}</span>
-            </div>
-          </Link>
-        ))}
-
-        {!loading && summary?.active_loans.length === 0 ? (
-          <article className="pg-empty-card">
-            <strong>No active loans</strong>
-            <span>Add your first loan to start tracking what is left.</span>
-            <button className="pg-button secondary" disabled={seeding} onClick={() => void handleSeedDemo()}>{seeding ? "Loading..." : "Load Demo Data"}</button>
-            <Link className="pg-button" href="/loans/new">Add Loan</Link>
+                <span className="pg-upcoming-copy"><b>{loan.name}</b><span>{formatDate(date)}</span></span>
+                <strong>{formatMoney(loan.payment_amount, 2)}</strong>
+              </Link>
+            ))}
           </article>
-        ) : null}
-      </div>
+        </>
+      ) : null}
 
       {confirmingNotification ? (
         <div className="pg-modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm autopay">
           <section className="pg-modal">
-            <h2 style={{ margin: 0 }}>Confirm Autopay</h2>
+            <h2>Confirm autopay</h2>
             <p className="pg-muted">Only continue if {confirmingNotification.loan_name}'s {formatMoney(confirmingNotification.amount, 2)} autopay actually processed.</p>
             <div className="pg-detail-list">
-              <div className="pg-detail-line"><span>Payments Left After</span><strong>{confirmingNotification.payments_remaining_after}</strong></div>
+              <div className="pg-detail-line"><span>Payments Left After</span><strong>{formatNumber(confirmingNotification.payments_remaining_after)}</strong></div>
               <div className="pg-detail-line"><span>Source</span><strong>Autopay Confirmed</strong></div>
             </div>
             <div className="pg-action-row">
-              <button className="pg-button dark" type="button" onClick={() => setConfirmingNotification(null)}>Cancel</button>
+              <button className="pg-button secondary" type="button" onClick={() => setConfirmingNotification(null)}>Cancel</button>
               <button className="pg-button" type="button" disabled={recordingNotification} onClick={() => void confirmAutopayPayment(confirmingNotification)}>Confirm Paid</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {confirmingNextPayment ? (
+        <div className="pg-modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm next payment">
+          <section className="pg-modal">
+            <h2>{confirmingNextPayment.autopay ? "Confirm autopay" : "Confirm payment"}</h2>
+            <p className="pg-muted">Record {formatMoney(confirmingNextPayment.payment_amount, 2)} for {confirmingNextPayment.name}?</p>
+            {confirmingNextPayment.autopay ? <p className="pg-muted">Only confirm if this autopay actually processed. A scheduled payment is not yet paid.</p> : null}
+            <div className="pg-detail-list">
+              <div className="pg-detail-line"><span>Payment Date</span><strong>{formatDate(currentLocalDate())}</strong></div>
+              {confirmingNextPayment.payment_type === "payoff" ? <div className="pg-detail-line"><span>Payments Left After</span><strong>{formatNumber(Math.max(confirmingNextPayment.payments_remaining - 1, 0))}</strong></div> : null}
+              <div className="pg-detail-line"><span>Source</span><strong>{confirmingNextPayment.autopay ? "Autopay Confirmed" : "Manual"}</strong></div>
+            </div>
+            <div className="pg-action-row">
+              <button className="pg-button secondary" type="button" disabled={recordingNextPayment} onClick={() => setConfirmingNextPayment(null)}>Cancel</button>
+              <button className="pg-button" type="button" disabled={recordingNextPayment} onClick={() => void confirmNextPayment()}>{recordingNextPayment ? "Saving" : "Confirm Paid"}</button>
             </div>
           </section>
         </div>

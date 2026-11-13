@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tally_widget_bg">#FFFFFF</color>
+    <color name="tally_widget_border">#E4E4E7</color>
+    <color name="tally_widget_text">#09090B</color>
+    <color name="tally_widget_muted">#52525B</color>
+    <color name="tally_widget_track">#E4E4E7</color>
+    <string name="widget_name">Tally</string>
+    <string name="widget_description">What\'s left to pay and your next payment</string>
+    <string name="widget_label_default">Left to pay</string>
+    <string name="widget_value_default">Tally</string>
+</resources>

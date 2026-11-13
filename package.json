@@ -3,8 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": [
-    "apps/paygauge-web",
-    "packages/*"
+    "apps/paygauge-web"
   ],
   "scripts": {
     "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-local.ps1",

@@ -49,7 +49,7 @@ if (-not $NoInstall) {
     if (-not (Test-Path (Join-Path $Root "node_modules"))) {
         Write-Host "Installing web dependencies..."
         Push-Location $Root
-        npm install
+        npm.cmd install
         Pop-Location
     }
 }
@@ -74,7 +74,7 @@ Start-Process powershell -ArgumentList @("-NoExit", "-ExecutionPolicy", "Bypass"
 Write-Host "Syncing Capacitor Android to $WebUrl ..."
 Push-Location $WebPath
 $env:CAPACITOR_SERVER_URL = $WebUrl
-npx cap sync android
+npx.cmd cap sync android
 if (-not $NoOpenAndroid) {
     npx cap open android
 }

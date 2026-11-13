@@ -30,6 +30,17 @@ def test_payments_remaining_uses_balance_when_total_not_present() -> None:
     assert remaining == 6
 
 
+def test_payments_remaining_accounts_for_interest() -> None:
+    remaining = calculate_payments_remaining(
+        total_number_of_payments=None,
+        payments_made=0,
+        current_balance=Decimal("2959.00"),
+        payment_amount=Decimal("350.00"),
+        interest_rate=Decimal("23.88"),
+    )
+    assert remaining == 10
+
+
 def test_progress_percentage_handles_final_payment() -> None:
     progress = calculate_progress_percentage(
         total_number_of_payments=12,
@@ -38,6 +49,16 @@ def test_progress_percentage_handles_final_payment() -> None:
         current_balance=Decimal("0.00"),
     )
     assert progress == 100.0
+
+
+def test_progress_percentage_uses_balance_reduction() -> None:
+    progress = calculate_progress_percentage(
+        total_number_of_payments=9,
+        payments_made=0,
+        original_amount=Decimal("3307.99"),
+        current_balance=Decimal("2959.00"),
+    )
+    assert progress == 10.55
 
 
 def test_due_date_rollover_for_31st_and_february() -> None:

@@ -19,6 +19,7 @@ def _refresh_metrics(loan: Loan) -> None:
 		payments_made=loan.payments_made,
 		current_balance=loan.current_balance,
 		payment_amount=loan.payment_amount,
+		interest_rate=loan.interest_rate,
 	)
 	loan.estimated_payoff_date = estimate_payoff_date(loan.next_due_date, loan.due_day, loan.payments_remaining)
 	if loan.payments_remaining == 0 or loan.current_balance <= Decimal("0"):

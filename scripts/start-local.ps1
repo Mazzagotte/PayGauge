@@ -36,7 +36,7 @@ if (-not $NoInstall) {
     if (-not (Test-Path (Join-Path $Root "node_modules"))) {
         Write-Host "Installing web dependencies..."
         Push-Location $Root
-        npm install
+        npm.cmd install
         Pop-Location
     }
 }
@@ -48,7 +48,7 @@ Set-Location '$ApiPath'
 
 $WebCommand = @"
 Set-Location '$Root'
-npm run dev:web
+npm.cmd run dev:web
 "@
 
 Write-Host "Starting PayGauge API on http://localhost:8000 ..."

@@ -1,159 +1,134 @@
 "use client";
 
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { PageHeader } from "../../../components/navigation/PageHeader";
+import { ArrowUpRight, Search, WalletCards } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoanCategoryIcon, categoryTone } from "../../../components/loans/LoanCategoryIcon";
-import { type Loan, formatDate, formatMoney, getLoans, recordLoanPayment } from "../../../lib/api";
+import { ChipGroup } from "../../../components/ChipGroup";
+import { type Loan, daysUntil, formatDate, formatMoney, formatNumber, getLoans, recurrenceLabel } from "../../../lib/api";
+
+type Filter = "all" | "payoff" | "ongoing" | "soon" | "autopay" | "done";
+type Sort = "due" | "balance" | "name";
+
+function matches(loan: Loan, filter: Filter) {
+  if (filter === "done") return loan.status !== "active";
+  if (loan.status === "archived") return false;
+  if (filter === "payoff" || filter === "ongoing") return loan.payment_type === filter;
+  if (filter === "autopay") return loan.status === "active" && loan.autopay;
+  if (filter === "soon") { const days = daysUntil(loan.next_due_date); return loan.status === "active" && days !== null && days <= 14; }
+  return true;
+}
 
 export default function Page() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [recordingFor, setRecordingFor] = useState<string | null>(null);
-  const [confirmingLoan, setConfirmingLoan] = useState<Loan | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort>("due");
   const [error, setError] = useState<string | null>(null);
-  const [paymentFormByLoan, setPaymentFormByLoan] = useState<Record<string, { amount: string; paymentDate: string }>>({});
 
-  const activeCount = useMemo(() => loans.filter((loan) => loan.status === "active").length, [loans]);
-  const completedCount = useMemo(() => loans.filter((loan) => loan.status === "completed").length, [loans]);
-
-  async function loadLoans() {
-    setLoading(true);
-    setError(null);
-    try {
-      setLoans(await getLoans());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Loans are unavailable");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const filteredLoans = useMemo(() => loans.filter((loan) => matches(loan, filter) && loan.name.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => {
+    if (sort === "name") return a.name.localeCompare(b.name);
+    if (sort === "balance") return Number(b.current_balance) - Number(a.current_balance) || a.name.localeCompare(b.name);
+    return (a.next_due_date ?? "9999").localeCompare(b.next_due_date ?? "9999") || a.name.localeCompare(b.name);
+  }), [filter, sort, loans, query]);
+  const count = (value: Filter) => loans.filter((loan) => matches(loan, value)).length;
 
   useEffect(() => {
+    async function loadLoans() {
+      try {
+        setLoans(await getLoans());
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Payments are unavailable");
+      } finally {
+        setLoading(false);
+      }
+    }
     void loadLoans();
   }, []);
 
-  async function recordPayment(loan: Loan) {
-    const form = paymentFormByLoan[loan.id] ?? {
-      amount: Number(loan.payment_amount).toFixed(2),
-      paymentDate: new Date().toISOString().slice(0, 10),
-    };
-    setRecordingFor(loan.id);
-    setError(null);
-
-    try {
-      await recordLoanPayment(loan.id, {
-        amount: Number(form.amount || loan.payment_amount).toFixed(2),
-        payment_date: form.paymentDate,
-        notes: null,
-        source: "manual",
-      });
-      await loadLoans();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record payment");
-    } finally {
-      setRecordingFor(null);
-    }
+  function clearFilters() {
+    setFilter("all");
+    setQuery("");
   }
+
+  const filters: { value: Filter; label: string }[] = [
+    { value: "all", label: "All" }, { value: "payoff", label: "Debts" }, { value: "ongoing", label: "Bills" },
+    { value: "soon", label: "Due soon" }, { value: "autopay", label: "Autopay" }, { value: "done", label: "Paid off" },
+  ];
 
   return (
     <>
-      <header className="pg-header">
-        <h1 className="pg-title">My Loans</h1>
-        <Link className="pg-add-button" href="/loans/new" aria-label="Add loan"><Plus aria-hidden="true" /></Link>
-      </header>
+      <PageHeader title="Payments" subtitle="Your debts and recurring bills." />
 
-      <div className="pg-pill-row">
-        <span className="pg-pill active">All</span>
-        <span className="pg-pill">Active {activeCount}</span>
-        <span className="pg-pill">Completed {completedCount}</span>
+      <label className="pg-search-field pg-payments-search">
+        <Search aria-hidden="true" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search payments" aria-label="Search payments" />
+      </label>
+
+      <ChipGroup<Filter> label="Filter payments" scroll className="pg-filter-chips" value={filter} onChange={setFilter}
+        options={filters.map((item) => ({ value: item.value, label: <>{item.label}{!loading && item.value !== "all" ? <span className="pg-chip-count">{count(item.value)}</span> : null}</> }))} />
+
+      <div className="pg-list-toolbar">
+        <span>{loading ? "Loading…" : `${filteredLoans.length} ${filteredLoans.length === 1 ? "account" : "accounts"}`}</span>
+        <div className="pg-segmented pg-sort" role="radiogroup" aria-label="Sort by">
+          {([["due", "Due"], ["balance", "Balance"], ["name", "A–Z"]] as const).map(([value, label]) => (
+            <button type="button" role="radio" aria-checked={sort === value} className={sort === value ? "active" : ""} key={value} onClick={() => setSort(value)}>{label}</button>
+          ))}
+        </div>
       </div>
 
-      {error ? <p className="pg-error">{error}</p> : null}
-      {loading ? <article className="pg-empty-card"><strong>Loading loans</strong><span>Checking what is left...</span></article> : null}
+      {error ? <p className="pg-error" role="alert">{error}</p> : null}
+      {loading ? <article className="pg-empty-card"><strong>Loading payments</strong><span>Checking your accounts...</span></article> : null}
 
-      <div className="pg-stack">
-        {loans.map((loan) => {
-          const paymentForm = paymentFormByLoan[loan.id] ?? {
-            amount: Number(loan.payment_amount).toFixed(2),
-            paymentDate: new Date().toISOString().slice(0, 10),
-          };
-
+      <div className="pg-stack" aria-label="Payment accounts">
+        {filteredLoans.map((loan) => {
+          const isDebt = loan.payment_type === "payoff";
+          const progress = Math.max(0, Math.min(100, loan.progress_percentage));
           return (
-            <article className="pg-loan-card" key={loan.id}>
+            <article className="pg-loan-card pg-payment-account" key={loan.id}>
               <Link href={`/loans/detail?id=${loan.id}`}>
                 <div className="pg-row">
                   <div className="pg-left">
                     <span className={`pg-token ${categoryTone(loan.category)}`}><LoanCategoryIcon category={loan.category} /></span>
-                    <div>
-                      <p className="pg-name">{loan.name}</p>
-                      <p className="pg-detail">{loan.payments_remaining} payments left</p>
+                    <div className="pg-payment-account-name"><h2 className="pg-name">{loan.name}</h2><p className="pg-detail">{recurrenceLabel(loan.recurrence ?? "monthly")}</p></div>
+                  </div>
+                  <div className="pg-amount"><strong>{formatMoney(loan.payment_amount, 2)}</strong><span>per payment</span></div>
+                </div>
+                <div className="pg-payment-account-meta">
+                  <span>{loan.status === "active" ? `Next due ${formatDate(loan.next_due_date)}` : loan.status === "completed" ? "Completed" : "Archived"}</span>
+                  {loan.status === "active" ? <span className="pg-payment-badge">{loan.autopay ? "Autopay" : "Manual"}</span> : null}
+                </div>
+                {isDebt ? (
+                  <div className="pg-payment-debt-details">
+                    <div className="pg-row">
+                      <div><strong>{formatMoney(loan.current_balance, 2)}</strong><span> balance remaining</span></div>
+                      <span>{formatNumber(loan.payments_remaining)} est. payments left</span>
                     </div>
+                    <div className={`pg-progress ${loan.status === "completed" ? "green" : ""}`} role="progressbar" aria-label={`${loan.name} balance paid off`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+                      <span style={{ width: `${progress}%` }} />
+                    </div>
+                    <p className="pg-section-note">{Number(loan.current_balance) > Number(loan.original_amount) ? "Balance exceeds original amount" : `${formatNumber(progress, 2)}% of balance paid off`}</p>
                   </div>
-                  <div className="pg-amount">
-                    <strong>{formatMoney(loan.current_balance)}</strong>
-                    <span>remaining</span>
-                  </div>
-                </div>
-                <div className={`pg-progress ${loan.status === "completed" ? "green" : ""}`}>
-                  <span style={{ width: `${Math.max(3, loan.progress_percentage)}%` }} />
-                </div>
-                <div className="pg-progress-meta">
-                  <span>{formatMoney(loan.payment_amount, 2)}/month</span>
-                  <span>Next: {formatDate(loan.next_due_date)}</span>
-                </div>
+                ) : null}
               </Link>
-
-              {loan.status === "active" ? (
-                <div className="pg-grid-2" style={{ marginTop: 10 }}>
-                  <input className="pg-input" inputMode="decimal" value={paymentForm.amount} onChange={(event) => setPaymentFormByLoan((prev) => ({ ...prev, [loan.id]: { ...paymentForm, amount: event.target.value } }))} aria-label="Payment amount" />
-                  <input className="pg-input" type="date" value={paymentForm.paymentDate} onChange={(event) => setPaymentFormByLoan((prev) => ({ ...prev, [loan.id]: { ...paymentForm, paymentDate: event.target.value } }))} aria-label="Payment date" />
-                  <button className="pg-button" style={{ gridColumn: "1 / -1" }} type="button" disabled={recordingFor === loan.id} onClick={() => setConfirmingLoan(loan)}>
-                    {recordingFor === loan.id ? "Saving..." : "Mark Payment as Made"}
-                  </button>
-                </div>
-              ) : null}
             </article>
           );
         })}
       </div>
 
-      {!loading && loans.length === 0 ? (
-        <article className="pg-empty-card" style={{ marginTop: 10 }}>
-          <strong>No loans yet</strong>
-          <span>Add your Engagement Ring loan to start tracking payments left.</span>
-          <Link className="pg-button" href="/loans/new">Add Loan</Link>
+      {!loading && !error && filteredLoans.length === 0 ? (
+        <article className="pg-empty-card pg-loans-empty">
+          <div className="pg-empty-icon"><WalletCards aria-hidden="true" /></div>
+          <div>
+            <strong>{loans.length === 0 ? "Your payment picture starts here" : "No matching payments"}</strong>
+            <span>{loans.length === 0 ? "Add a debt or recurring bill to get started." : "Try another search or clear your filters."}</span>
+          </div>
+          {loans.length === 0 ? <Link className="pg-button" href="/loans/new">Add your first payment <ArrowUpRight aria-hidden="true" /></Link> : <button className="pg-button secondary" type="button" onClick={clearFilters}>Clear filters</button>}
         </article>
       ) : null}
-
-      {confirmingLoan ? (() => {
-        const form = paymentFormByLoan[confirmingLoan.id] ?? {
-          amount: Number(confirmingLoan.payment_amount).toFixed(2),
-          paymentDate: new Date().toISOString().slice(0, 10),
-        };
-        const paymentAmount = Number(form.amount || confirmingLoan.payment_amount);
-        const balanceAfterPayment = Math.max(Number(confirmingLoan.current_balance) - paymentAmount, 0);
-        const paymentsLeftAfterPayment = Math.max(confirmingLoan.payments_remaining - 1, 0);
-
-        return (
-          <div className="pg-modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm payment">
-            <section className="pg-modal">
-              <h2 style={{ margin: 0 }}>Confirm Payment</h2>
-              <p className="pg-muted">Record {formatMoney(String(paymentAmount), 2)} for {confirmingLoan.name}?</p>
-              <div className="pg-detail-list">
-                <div className="pg-detail-line"><span>Payment Date</span><strong>{formatDate(form.paymentDate)}</strong></div>
-                <div className="pg-detail-line"><span>Balance After</span><strong>{formatMoney(String(balanceAfterPayment), 2)}</strong></div>
-                <div className="pg-detail-line"><span>Payments Left After</span><strong>{paymentsLeftAfterPayment}</strong></div>
-              </div>
-              <div className="pg-action-row">
-                <button className="pg-button dark" type="button" onClick={() => setConfirmingLoan(null)}>Cancel</button>
-                <button className="pg-button" type="button" onClick={() => { setConfirmingLoan(null); void recordPayment(confirmingLoan); }}>Confirm</button>
-              </div>
-            </section>
-          </div>
-        );
-      })() : null}
     </>
   );
 }

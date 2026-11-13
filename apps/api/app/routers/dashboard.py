@@ -19,6 +19,7 @@ def _loan_summary(loan: Loan) -> DashboardLoanSummary:
         category=loan.category,
         current_balance=loan.current_balance,
         payment_amount=loan.payment_amount,
+        interest_rate=loan.interest_rate,
         payments_remaining=loan.payments_remaining,
         progress_percentage=calculate_progress_percentage(
             total_number_of_payments=loan.total_number_of_payments,

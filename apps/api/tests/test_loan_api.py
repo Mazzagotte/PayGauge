@@ -70,6 +70,20 @@ def test_archived_loan_rejects_new_payments(client: TestClient) -> None:
     assert payment_response.status_code == 400
 
 
+def test_delete_loan_removes_loan_and_payment_history(client: TestClient) -> None:
+    loan = create_sample_loan(client)
+    client.post(
+        f"/loans/{loan['id']}/payments",
+        json={"amount": "200.00", "payment_date": "2026-10-05", "source": "manual"},
+    )
+
+    delete_response = client.delete(f"/loans/{loan['id']}")
+
+    assert delete_response.status_code == 204
+    assert client.get(f"/loans/{loan['id']}").status_code == 404
+    assert client.get("/loans").json() == []
+
+
 def test_update_loan_recalculates_next_due_date_and_category(client: TestClient) -> None:
     loan = create_sample_loan(client)
 

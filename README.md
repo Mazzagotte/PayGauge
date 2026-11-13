@@ -1,4 +1,4 @@
-# PayGauge
+# Tally (formerly PayGauge)
 
 **See what's left.**
 
@@ -11,6 +11,9 @@ PayGauge is a private personal payment tracker focused on loans, recurring bills
 - Record manual payments quickly.
 - Track recurring bills and autopay schedules.
 - Send Android reminders for due dates, scheduled autopay, and payment confirmation.
+  - Automatic notifications use each account's next tracked due date, at 9 AM in the phone's local timezone. Pre-due days, autopay confirmation delay and quiet hours use the saved preferences.
+  - Opening/resuming the app, granting permission, changing records or importing a backup refreshes the schedule. Record payments to advance dates; old overdue dates are not scheduled. Notifications never record payments automatically.
+  - Android retains scheduled reminders when the app closes and restores them after reboot. Delivery can be delayed by battery management; exact-alarm access is not required. More shows scheduling status; the browser uses in-app reminders only.
 - Show payoff progress and milestones.
 - Work well as an Android app while retaining a web-based codebase.
 
@@ -47,6 +50,8 @@ npm run build:android
 
 This builds `apps/paygauge-web/out` and syncs those bundled files into the Android project. Do not set `CAPACITOR_SERVER_URL` for production builds.
 
+On Windows, Gradle outputs are stored under `%LOCALAPPDATA%\PayGauge\android-build\<checkout-id>` rather than inside OneDrive or `node_modules`. This avoids synced-folder locks during tasks such as `mergeDebugAssets`. After a build-directory change, sync the project in Android Studio and run again; deleting the old `android\build-tmp` directory is not required. The debug APK is under `<checkout-id>\_app\outputs\apk\debug\app-debug.apk`.
+
 For local live-reload phone testing, your computer and phone must be on the same Wi-Fi network. The phone app can load the Next.js dev server from your computer's LAN IP, but normal app data is still stored locally by the Capacitor application.
 
 From the repository root:
@@ -67,4 +72,4 @@ Android native builds require Android Studio and a JDK. If Gradle reports `JAVA_
 
 ## Branding
 
-The approved PayGauge mockup logo assets are stored in `apps/paygauge-web/public/brand/`. Do not substitute or redraw them without approval.
+The current Resto-style PayGauge mark uses the provided web, Android, and iOS icon exports. Android icons are installed in the native resources; the iOS AppIcon catalog is staged under `apps/paygauge-web/assets/ios/` because this repository does not contain an iOS Capacitor project.

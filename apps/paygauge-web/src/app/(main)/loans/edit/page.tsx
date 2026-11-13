@@ -1,12 +1,20 @@
 "use client";
 
-import Link from "next/link";
+import { PageHeader } from "../../../../components/navigation/PageHeader";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
+import { ChipGroup } from "../../../../components/ChipGroup";
+import { MiniCalendar } from "../../../../components/MiniCalendar";
+
 import { LoanCategoryIcon, loanCategories } from "../../../../components/loans/LoanCategoryIcon";
-import { type LoanCategory, formatDate, getLoan, previewNextDueDate, updateLoan } from "../../../../lib/api";
+import { type LoanCategory, type LoanRecurrence, type PaidWith, type PaymentType, formatDate, getLoan, isPayoffTargetCategory, previewNextDueDate, updateLoan } from "../../../../lib/api";
+
+function ordinal(day: number) {
+  if (day >= 11 && day <= 13) return "th";
+  return ["th", "st", "nd", "rd"][day % 10] ?? "th";
+}
 
 export default function Page() {
   const router = useRouter();
@@ -14,8 +22,10 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", category: "personal" as LoanCategory, originalAmount: "", currentBalance: "", paymentAmount: "", totalPayments: "", paymentsMade: "", startDate: "", dueDay: "", interestRate: "0", autopay: false, notes: "", status: "active" });
+  const [editingStart, setEditingStart] = useState(false);
+  const [form, setForm] = useState({ name: "", category: "other" as LoanCategory, paidWith: "other" as PaidWith, originalAmount: "", paymentAmount: "", startDate: "", dueDay: "", interestRate: "0", recurrence: "monthly" as LoanRecurrence, autopay: false, notes: "" });
   const nextDuePreview = previewNextDueDate(form.startDate, form.dueDay);
+  const isPayoffTarget = isPayoffTargetCategory(form.category);
 
   useEffect(() => {
     setLoanId(new URLSearchParams(window.location.search).get("id"));
@@ -25,7 +35,7 @@ export default function Page() {
     async function loadLoan(id: string) {
       try {
         const loan = await getLoan(id);
-        setForm({ name: loan.name, category: loan.category, originalAmount: loan.original_amount, currentBalance: loan.current_balance, paymentAmount: loan.payment_amount, totalPayments: loan.total_number_of_payments ? String(loan.total_number_of_payments) : "", paymentsMade: String(loan.payments_made), startDate: loan.start_date ?? "", dueDay: loan.due_day ? String(loan.due_day) : "", interestRate: loan.interest_rate ?? "0", autopay: loan.autopay, notes: loan.description ?? "", status: loan.status });
+        setForm({ name: loan.name, category: loan.category, paidWith: loan.paid_with, originalAmount: loan.original_amount, paymentAmount: loan.payment_amount, startDate: loan.start_date ?? "", dueDay: loan.due_day ? String(loan.due_day) : "", interestRate: loan.interest_rate ?? "0", recurrence: loan.recurrence ?? "monthly", autopay: loan.autopay, notes: loan.description ?? "" });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Loan is unavailable");
       } finally {
@@ -41,8 +51,17 @@ export default function Page() {
     if (!loanId) return;
     setSaving(true);
     setError(null);
+
+    const resolvedPaymentType: PaymentType = isPayoffTarget ? 'payoff' : 'ongoing';
+
+    if (resolvedPaymentType === "payoff" && !Number(form.paymentAmount)) {
+      setError("Payment amount is required for a payoff target.");
+      setSaving(false);
+      return;
+    }
+
     try {
-      await updateLoan(loanId, { name: form.name, category: form.category, description: form.notes || null, original_amount: Number(form.originalAmount).toFixed(2), current_balance: Number(form.currentBalance).toFixed(2), payment_amount: Number(form.paymentAmount).toFixed(2), total_number_of_payments: form.totalPayments ? Number(form.totalPayments) : null, payments_made: Number(form.paymentsMade || 0), interest_rate: Number(form.interestRate || 0).toFixed(4), start_date: form.startDate || null, due_day: form.dueDay ? Number(form.dueDay) : null, autopay: form.autopay, status: form.status });
+      await updateLoan(loanId, { name: form.name, category: form.category, payment_type: resolvedPaymentType, paid_with: form.paidWith, description: form.notes || null, original_amount: (resolvedPaymentType === "ongoing" ? 0 : Number(form.originalAmount)).toFixed(2), payment_amount: Number(form.paymentAmount).toFixed(2), total_number_of_payments: null, interest_rate: Number(form.interestRate || 0).toFixed(4), start_date: form.startDate || null, due_day: form.dueDay ? Number(form.dueDay) : null, recurrence: form.recurrence, autopay: form.autopay });
       router.push(`/loans/detail?id=${loanId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update loan");
@@ -53,21 +72,28 @@ export default function Page() {
 
   return (
     <>
-      <header className="pg-header"><Link className="pg-link" href={loanId ? `/loans/detail?id=${loanId}` : "/loans"}><ArrowLeft aria-hidden="true" /> Back</Link><h1 className="pg-title" style={{ fontSize: 16 }}>Edit Loan</h1><button className="pg-link" form="edit-loan-form" style={{ background: "transparent", border: 0 }} disabled={saving}>Save</button></header>
+      <PageHeader title="Edit payment" backHref={loanId ? `/loans/detail?id=${loanId}` : "/loans"}
+        actions={<button className="pg-link" type="submit" form="edit-loan-form" disabled={saving}>Save</button>} />
       {loading ? <article className="pg-empty-card"><strong>Loading loan</strong><span>Preparing editable fields.</span></article> : null}
       {error ? <p className="pg-error">{error}</p> : null}
       {!loading && loanId ? <form id="edit-loan-form" className="pg-form" onSubmit={handleSubmit}>
-        <div className="pg-field"><label>Loan Name</label><input className="pg-input" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} /></div>
-        <div className="pg-field"><label>Icon</label><div className="pg-category-grid">{loanCategories.map((category) => <button className={`pg-category-option ${form.category === category.value ? "active" : ""}`} type="button" key={category.value} onClick={() => setForm((prev) => ({ ...prev, category: category.value }))}><LoanCategoryIcon category={category.value} /><span>{category.label}</span></button>)}</div></div>
-        <div className="pg-grid-2"><div className="pg-field"><label>Original Amount</label><input className="pg-input" inputMode="decimal" value={form.originalAmount} onChange={(event) => setForm((prev) => ({ ...prev, originalAmount: event.target.value }))} /></div><div className="pg-field"><label>Current Balance</label><input className="pg-input" inputMode="decimal" value={form.currentBalance} onChange={(event) => setForm((prev) => ({ ...prev, currentBalance: event.target.value }))} /></div></div>
-        <div className="pg-grid-2"><div className="pg-field"><label>Monthly Payment</label><input className="pg-input" inputMode="decimal" value={form.paymentAmount} onChange={(event) => setForm((prev) => ({ ...prev, paymentAmount: event.target.value }))} /></div><div className="pg-field"><label>Total Payments</label><input className="pg-input" inputMode="numeric" value={form.totalPayments} onChange={(event) => setForm((prev) => ({ ...prev, totalPayments: event.target.value }))} /></div></div>
-        <div className="pg-grid-2"><div className="pg-field"><label>Payments Made</label><input className="pg-input" inputMode="numeric" value={form.paymentsMade} onChange={(event) => setForm((prev) => ({ ...prev, paymentsMade: event.target.value }))} /></div><div className="pg-field"><label>Status</label><select className="pg-select" value={form.status} onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></div></div>
-        <div className="pg-grid-2"><div className="pg-field"><label>Start Date</label><input className="pg-input" type="date" value={form.startDate} onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))} /></div><div className="pg-field"><label>Due Day</label><select className="pg-select" value={form.dueDay} onChange={(event) => setForm((prev) => ({ ...prev, dueDay: event.target.value }))}><option value="">None</option>{Array.from({ length: 31 }, (_, index) => String(index + 1)).map((day) => <option key={day} value={day}>{day}</option>)}</select></div></div>
-        <article className="pg-empty-card"><strong>Date Preview</strong><span>Next due would be {nextDuePreview ? formatDate(nextDuePreview.toISOString().slice(0, 10)) : "not set"}.</span></article>
-        <div className="pg-field"><label>Interest Rate Optional</label><input className="pg-input" inputMode="decimal" value={form.interestRate} onChange={(event) => setForm((prev) => ({ ...prev, interestRate: event.target.value }))} /></div>
-        <label className="pg-row pg-card" style={{ padding: 12 }}><span>Autopay</span><input type="checkbox" checked={form.autopay} onChange={(event) => setForm((prev) => ({ ...prev, autopay: event.target.checked }))} /></label>
-        <div className="pg-field"><label>Notes Optional</label><textarea className="pg-textarea" rows={4} value={form.notes} onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))} /></div>
-        <button className="pg-button" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</button>
+        <div className="pg-field"><label>Name</label><input className="pg-input" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} /></div>
+        <div className="pg-field"><span className="pg-field-label">Category</span><ChipGroup label="Category" value={form.category} onChange={(value) => setForm((prev) => ({ ...prev, category: value }))} options={loanCategories.map((category) => ({ value: category.value, label: category.label, icon: <LoanCategoryIcon category={category.value} /> }))} /></div>
+        {isPayoffTarget ? <div className="pg-field"><label>Original amount</label><input className="pg-input" inputMode="decimal" value={form.originalAmount} onChange={(event) => setForm((prev) => ({ ...prev, originalAmount: event.target.value }))} /></div> : null}
+        <div className="pg-field"><label>Payment amount</label><input className="pg-input" inputMode="decimal" value={form.paymentAmount} onChange={(event) => setForm((prev) => ({ ...prev, paymentAmount: event.target.value }))} /></div>
+        <div className="pg-field"><span className="pg-field-label">Paid with</span><ChipGroup label="Paid with" value={form.paidWith} onChange={(value) => setForm((prev) => ({ ...prev, paidWith: value as PaidWith }))} options={[{ value: "bank-account", label: "Bank account" }, { value: "credit-card", label: "Credit card" }, { value: "other", label: "Other" }]} /></div>
+                        <div className="pg-field"><span className="pg-field-label">How often</span><ChipGroup label="How often" scroll value={form.recurrence} onChange={(value) => setForm((prev) => ({ ...prev, recurrence: value as LoanRecurrence }))} options={[{ value: "monthly", label: "Monthly" }, { value: "biweekly", label: "Every 2 weeks" }, { value: "weekly", label: "Weekly" }, { value: "quarterly", label: "Quarterly" }, { value: "annual", label: "Yearly" }]} /></div>
+        <div className="pg-field"><span className="pg-field-label">Due day of the month <b className="pg-field-value">{form.dueDay ? `${form.dueDay}${ordinal(Number(form.dueDay))}` : "None"}</b></span>
+          <div className="pg-day-picker" role="radiogroup" aria-label="Due day">{Array.from({ length: 31 }, (_, index) => String(index + 1)).map((day) => <button type="button" role="radio" aria-checked={form.dueDay === day} className={`pg-day ${form.dueDay === day ? "active" : ""}`} key={day} onClick={() => setForm((prev) => ({ ...prev, dueDay: day }))}>{day}</button>)}</div>
+        </div>
+        <div className="pg-field"><span className="pg-field-label">Start date <b className="pg-field-value">{formatDate(form.startDate || null)}</b></span>
+          {editingStart ? <MiniCalendar label="Start date" value={form.startDate} onChange={(value) => { setForm((prev) => ({ ...prev, startDate: value })); setEditingStart(false); }} /> : <button type="button" className="pg-button secondary small pg-fit" onClick={() => setEditingStart(true)}>Change start date</button>}
+        </div>
+                <article className="pg-insight-card"><CalendarDays aria-hidden="true" /><div><strong>Next due {nextDuePreview ? formatDate(nextDuePreview.toISOString().slice(0, 10)) : "not set"}</strong><span>Based on the start date and due day.</span></div></article>
+        {isPayoffTarget ? <div className="pg-field"><label>Interest rate <span className="pg-optional">optional</span></label><input className="pg-input" inputMode="decimal" value={form.interestRate} onChange={(event) => setForm((prev) => ({ ...prev, interestRate: event.target.value }))} /></div> : null}
+        <button type="button" className="pg-toggle-row" role="switch" aria-checked={form.autopay} onClick={() => setForm((prev) => ({ ...prev, autopay: !prev.autopay }))}><span><b>Autopay</b><span>You&apos;ll confirm it went through before it counts.</span></span><span aria-hidden="true" className={`pg-switch ${form.autopay ? "" : "off"}`}><span /></span></button>
+        <div className="pg-field"><label>Notes <span className="pg-optional">optional</span></label><textarea className="pg-textarea" rows={3} value={form.notes} onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))} /></div>
+        <button className="pg-button" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
       </form> : null}
     </>
   );
