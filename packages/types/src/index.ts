@@ -1,3 +1,5 @@
+export type PaymentType = 'payoff' | 'ongoing';
+export type PaidWith = 'bank-account' | 'credit-card' | 'other';
 export type LoanStatus = 'active' | 'completed' | 'paused';
 
 export interface Loan {
@@ -6,6 +8,8 @@ export interface Loan {
   originalAmount: number;
   currentBalance: number;
   paymentAmount: number;
+  paymentType: PaymentType;
+  paidWith: PaidWith;
   totalPayments?: number;
   paymentsMade: number;
   dueDay?: number;

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'app.paygauge.mobile',
-  appName: 'PayGauge',
+  appName: 'Tally',
   webDir: 'out',
   server: process.env.CAPACITOR_SERVER_URL
     ? {
@@ -12,13 +12,13 @@ const config: CapacitorConfig = {
     : undefined,
   plugins: {
     StatusBar: {
-      backgroundColor: '#07111d',
-      style: 'DARK',
+      backgroundColor: '#F7F7F8',
+      style: 'LIGHT',
       overlaysWebView: false,
     },
     SplashScreen: {
       launchShowDuration: 800,
-      backgroundColor: '#07111d',
+      backgroundColor: '#F7F7F8',
       showSpinner: false,
     },
   },

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tally_widget_bg">#121215</color>
+    <color name="tally_widget_border">#27272A</color>
+    <color name="tally_widget_text">#FAFAFA</color>
+    <color name="tally_widget_muted">#A1A1AA</color>
+    <color name="tally_widget_track">#27272A</color>
+</resources>

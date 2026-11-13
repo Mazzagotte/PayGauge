@@ -10,6 +10,7 @@ class DashboardLoanSummary(BaseModel):
     category: str
     current_balance: Decimal
     payment_amount: Decimal
+    interest_rate: Decimal | None
     payments_remaining: int
     progress_percentage: float
     next_due_date: date | None

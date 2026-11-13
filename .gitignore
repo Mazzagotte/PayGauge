@@ -32,3 +32,6 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+# Local build logs
+scripts/*.log
